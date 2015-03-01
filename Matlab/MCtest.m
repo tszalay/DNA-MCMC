@@ -12,25 +12,27 @@ function MCtest()
     % paper used h = 100kT/L0^2, close to what I have
     %params['ks'] = 100.0/a^2
     % this one is equivalent to 1000pN elastic modulus
-    param_ks = 1000.0*kTperpN/param_a;
+    %param_ks = 1000.0*kTperpN/param_a;
+    param_ks = 120;
     % persistence length
-    param_Lp = 1.5; % nm
+    param_Lp = 1.6; % nm
     % bending modulus
     param_kb = param_Lp/param_a;
     % total length
     param_L = N*param_a;
     
     % charge per base & link
-    eperbase = 0.2;
+    eperbase = 0.12;
     eperlink = eperbase*2*param_a; % ~2 bases/nm
 
     
     % assumes fmt (r,z,V)
-    data = csvread('C:\Users\szalay\Dropbox\research\calculations\comsol\biopore.csv');
+    data = csvread('C:\Users\tamas\Dropbox\research\calculations\comsol\biopore.csv');
     
     rs = unique(data(:,1));
     zs = unique(data(:,2));
     Vs = reshape(data(:,3),[numel(rs),numel(zs)]);
+    %Vs = fliplr(Vs);
     
     Uwork = griddedInterpolant({rs,zs},Vs);
     
@@ -69,7 +71,7 @@ function MCtest()
         uw = uw * eperlink;
         % now it is in eV, convert to kT
         uw = uw / eVperkT;
-        u = u - uw;
+        u = u + uw;
         if (isnan(u))
             u = 1e100;
         end
@@ -81,10 +83,11 @@ function MCtest()
     
     % make big 3d array to hold configurations
     Xs = zeros([nsamp, N, 3]);
+    Bases = zeros(nsamp,1);
     % and initialize current config
     X = zeros(N,3);
     % to a line at r = 0
-    X(:,3) = (1:N)*param_a - 8;
+    X(:,3) = -(1:N)*param_a + 8;
     % get the energy
     U = Utotal(X);
     % now loop through and sample configuration space
@@ -176,8 +179,12 @@ function MCtest()
         % do we savae current conformation or not?
         if nsince >= thin*N
             Xs(curind,:,:) = X;
-            curind = curind + 1
             nsince = 0;
+            
+            [~,Bases(curind)] = min(abs(X(:,3)));
+            fprintf('Mean: %0.1f, Std: %0.2f\n',mean(Bases(1:curind)),std(Bases(1:curind)));
+
+            curind = curind + 1
             
             if mod(curind,1) == 0
                 %{
@@ -187,7 +194,7 @@ function MCtest()
                 zlim([-10,20]);
                 %}
                 delete(pp);
-                pp = plot(X(:,1),-X(:,3));
+                pp = plot(X(:,1),X(:,3));
                 xlim([-10,10])
                 ylim([-20,10]);
                 drawnow
