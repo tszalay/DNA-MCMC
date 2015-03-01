@@ -75,12 +75,17 @@ classdef PoreMC < handle
             addParameter(p,'linklength',0.5,@isnumeric);
             addParameter(p,'persistence',1.6,@isnumeric);
             addParameter(p,'eperbase',0.12,@isnumeric);
-            % this is in kT/nm^2 or such, from Bustamante paper I think
+            % this is in kT/nm^2 or such, from Dessinges et al.
             addParameter(p,'kstretch',120,@isnumeric);
+            % DNA-pore interaction energy
+            addParameter(p,'uinter',[0 -1.5 1 3],@isnumeric);
+            % and interaction distance falloff
+            addParameter(p,'dinter',0.2,@isnumeric);
             
             parse(p,varargin{:});
             
             obj.Params = p.Results;
+            obj.Params.sequence = nt2int(obj.Params.sequence);
             obj.Params.N = numel(obj.Params.sequence);
             obj.Params.eperlink = obj.Params.eperbase*2 ...
                             *obj.Params.linklength; % ~2 bases/nm
@@ -98,7 +103,6 @@ classdef PoreMC < handle
             
             obj.Index = 0;
             
-            obj.Params.sequence = nt2int(obj.Params.sequence);
             
             % stats
             obj.StepsAcc = [0 0 0];
@@ -111,6 +115,7 @@ classdef PoreMC < handle
             
             if nargin < 2
                 figure(1);
+                clf
                 hax = axes();
             end
             
@@ -121,7 +126,7 @@ classdef PoreMC < handle
             xlim(10*[-1 1]);
             ylim([-10 10]);
             daspect([1 1 1])
-            
+            hold off
         end
         
         
@@ -149,15 +154,20 @@ classdef PoreMC < handle
             if (isnan(u))
                 u = 1e100;
             end
+            % now interactions
+            dinters = exp(-0.5*(x(:,3)/obj.Params.dinter).^2);
+            uinters = obj.Params.uinter(obj.Params.sequence)*dinters;
+            u = u + uinters;
             
         end
         
         function SingleStep(obj)
             
             % random x proposal distribution, based on stretchiness and stuff
-            delta = 1.0*sqrt(2/obj.Params.kstretch);
+            delta = 0.2*sqrt(2/obj.Params.kstretch);
+            dscale = [1 1 4];
             % random rotation angle scaling
-            dtheta = 0.01*sqrt(2/obj.Params.kbend);
+            dtheta = 0.1*sqrt(2/obj.Params.kbend);
             % crankshaft angle step size, go all out
             dcrank = 2*pi;
 
@@ -174,7 +184,8 @@ classdef PoreMC < handle
                 for k=1:5
                     i = randi(N-1);
                     xt = Xnew((i+1):end,:);
-                    xt = xt + 2*delta*repmat(rand(1,3)-0.5,[size(xt,1),1]);
+                    drand = (rand(1,3)-0.5).*dscale;
+                    xt = xt + 2*delta*repmat(drand,[size(xt,1),1]);
                     Xnew((i+1):end,:) = xt;
                 end
                 mtype = 1;
@@ -250,8 +261,14 @@ classdef PoreMC < handle
                 obj.SingleStep();
             end
             obj.Xs(obj.Index,:,:) = obj.X;
-            [~,obj.Bases(obj.Index)] = min(abs(obj.X(:,3)));
-            fprintf('Mean: %0.1f, Std: %0.2f\n',mean(obj.Bases(1:obj.Index)),std(obj.Bases(1:obj.Index)));
+            % weighted avg.
+            dinters = exp(-0.5*(obj.X(:,3)/0.5).^2);
+            dinters = dinters / sum(dinters);
+            obj.Bases(obj.Index) = sum(dinters.*(1:numel(dinters))');
+            %[~,obj.Bases(obj.Index)] = min(abs(obj.X(:,3)));
+            fprintf('Mean: %0.1f, Std: %0.2f, Accs: %0.2f,%0.2f,%0.2f\n', ...
+                mean(obj.Bases(1:obj.Index)),std(obj.Bases(1:obj.Index)), ...
+                obj.StepsAcc ./ obj.StepsTot);
             obj.Index = obj.Index + 1;
             
         end
