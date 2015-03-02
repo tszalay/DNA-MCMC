@@ -15,6 +15,7 @@ classdef PoreMC < handle
         % output arrays
         Xs
         Bases
+        Blocks
         % and current values
         X
         U
@@ -36,7 +37,7 @@ classdef PoreMC < handle
             
             % load precalculated voltages from COMSOL-generated csv
             % assumes fmt (r,z,V)
-            data = csvread('C:\Users\szalay\Dropbox\research\calculations\comsol\biopore.csv');
+            data = csvread('C:\Users\tamas\Dropbox\research\calculations\comsol\biopore.csv');
 
             obj.Rs = unique(data(:,1));
             obj.Zs = unique(data(:,2));
@@ -78,7 +79,7 @@ classdef PoreMC < handle
             % this is in kT/nm^2 or such, from Dessinges et al.
             addParameter(p,'kstretch',120,@isnumeric);
             % DNA-pore interaction energy
-            addParameter(p,'uinter',[0 -1.5 1 3],@isnumeric);
+            addParameter(p,'uinter',[0.5 0.5 1 3],@isnumeric);
             % and interaction distance falloff
             addParameter(p,'dinter',0.2,@isnumeric);
             
@@ -94,6 +95,7 @@ classdef PoreMC < handle
             % make big 3d array to hold configurations
             obj.Xs = zeros([obj.Params.samples, obj.Params.N, 3]);
             obj.Bases = zeros(obj.Params.samples,1);
+            obj.Blocks = zeros(obj.Params.samples,1);
             % and initialize current config
             obj.X = zeros(obj.Params.N,3);
             % to a line at r = 0
@@ -263,12 +265,13 @@ classdef PoreMC < handle
             obj.Xs(obj.Index,:,:) = obj.X;
             % weighted avg.
             dinters = exp(-0.5*(obj.X(:,3)/0.5).^2);
+            obj.Blocks(obj.Index) = sum(dinters);
             dinters = dinters / sum(dinters);
             obj.Bases(obj.Index) = sum(dinters.*(1:numel(dinters))');
             %[~,obj.Bases(obj.Index)] = min(abs(obj.X(:,3)));
-            fprintf('Mean: %0.1f, Std: %0.2f, Accs: %0.2f,%0.2f,%0.2f\n', ...
+            fprintf('Mean: %0.1f, Std: %0.2f, Block: %0.2f, Accs: %0.2f,%0.2f,%0.2f\n', ...
                 mean(obj.Bases(1:obj.Index)),std(obj.Bases(1:obj.Index)), ...
-                obj.StepsAcc ./ obj.StepsTot);
+                mean(obj.Blocks(1:obj.Index)),obj.StepsAcc ./ obj.StepsTot);
             obj.Index = obj.Index + 1;
             
         end
