@@ -37,7 +37,7 @@ classdef PoreMC < handle
             
             % load precalculated voltages from COMSOL-generated csv
             % assumes fmt (r,z,V)
-            data = csvread('C:\Users\tamas\Dropbox\research\calculations\comsol\biopore.csv');
+            data = csvread('C:\Users\szalay\Dropbox\research\calculations\comsol\biopore.csv');
 
             obj.Rs = unique(data(:,1));
             obj.Zs = unique(data(:,2));
@@ -75,11 +75,11 @@ classdef PoreMC < handle
             % and these are the DNA parameters
             addParameter(p,'linklength',0.5,@isnumeric);
             addParameter(p,'persistence',1.6,@isnumeric);
-            addParameter(p,'eperbase',0.12,@isnumeric);
+            addParameter(p,'eperbase',0.2,@isnumeric);
             % this is in kT/nm^2 or such, from Dessinges et al.
             addParameter(p,'kstretch',120,@isnumeric);
             % DNA-pore interaction energy
-            addParameter(p,'uinter',[0.5 0.5 1 3],@isnumeric);
+            addParameter(p,'uinter',[1 -1 1 3],@isnumeric);
             % and interaction distance falloff
             addParameter(p,'dinter',0.2,@isnumeric);
             
@@ -116,7 +116,7 @@ classdef PoreMC < handle
         function Plot(obj, hax)
             
             if nargin < 2
-                figure(1);
+                %figure(1);
                 clf
                 hax = axes();
             end
@@ -129,6 +129,7 @@ classdef PoreMC < handle
             ylim([-10 10]);
             daspect([1 1 1])
             hold off
+            drawnow
         end
         
         
@@ -264,7 +265,7 @@ classdef PoreMC < handle
             end
             obj.Xs(obj.Index,:,:) = obj.X;
             % weighted avg.
-            dinters = exp(-0.5*(obj.X(:,3)/0.5).^2);
+            dinters = exp(-0.5*(obj.X(:,3)/0.3).^2);
             obj.Blocks(obj.Index) = sum(dinters);
             dinters = dinters / sum(dinters);
             obj.Bases(obj.Index) = sum(dinters.*(1:numel(dinters))');
