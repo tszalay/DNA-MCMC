@@ -5,8 +5,10 @@ classdef PoreMC < handle
         Rs
         Zs
         Vs
+        Is
         % gridded interpolant of above
         Vfun
+        Ifun
         % pore outline points
         PoreRs
         PoreZs
@@ -41,24 +43,6 @@ classdef PoreMC < handle
 
             obj.Rs = unique(data(:,1));
             obj.Zs = unique(data(:,2));
-            obj.Vs = reshape(data(:,3),[numel(obj.Rs),numel(obj.Zs)]);
-            
-            obj.Vfun = griddedInterpolant({obj.Rs,obj.Zs},obj.Vs);
-            
-            % now parse into pore opening outline
-            vn = isnan(obj.Vs);
-            nan0 = find(any(vn,1),1,'first');
-            nan1 = find(any(vn,1),1,'last');
-            nanmid = find(any(vn,2),1,'first');
-            r0 = obj.Rs(find(vn(:,nan0),1,'first'));
-            r1 = obj.Rs(find(vn(:,nan1),1,'first'));
-            rmid = obj.Rs(nanmid);
-            z0 = obj.Zs(nan0);
-            z1 = obj.Zs(nan1);
-            zmid = 0;
-
-            obj.PoreRs = [r0+10, r0, rmid, r1, r1+10];
-            obj.PoreZs = [z0, z0, zmid, z1, z1];
             
             % now load/validate all of the parameters
             p = inputParser;
@@ -75,13 +59,16 @@ classdef PoreMC < handle
             % and these are the DNA parameters
             addParameter(p,'linklength',0.5,@isnumeric);
             addParameter(p,'persistence',1.6,@isnumeric);
-            addParameter(p,'eperbase',0.2,@isnumeric);
+            addParameter(p,'eperbase',0.15,@isnumeric);
+            addParameter(p,'V',0.14,@isnumeric);
             % this is in kT/nm^2 or such, from Dessinges et al.
             addParameter(p,'kstretch',120,@isnumeric);
             % DNA-pore interaction energy
             addParameter(p,'uinter',[1 -1 1 3],@isnumeric);
             % and interaction distance falloff
             addParameter(p,'dinter',0.2,@isnumeric);
+            % also give it a bead radius that the top end is pinned to
+            addParameter(p,'rbead',4,@isnumeric);
             
             parse(p,varargin{:});
             
@@ -91,6 +78,34 @@ classdef PoreMC < handle
             obj.Params.eperlink = obj.Params.eperbase*2 ...
                             *obj.Params.linklength; % ~2 bases/nm
             obj.Params.kbend = obj.Params.persistence/obj.Params.linklength;
+            
+            
+            % scale Vs and Is by the given potential
+            obj.Vs = obj.Params.V * reshape(data(:,3),[numel(obj.Rs),numel(obj.Zs)]);
+            obj.Is = obj.Params.V * reshape(data(:,4),[numel(obj.Rs),numel(obj.Zs)]);
+            % divide current density by max val
+            obj.Is = obj.Is / max(max(obj.Is));
+            % and make gridded functions
+            obj.Vfun = griddedInterpolant({obj.Rs,obj.Zs},obj.Vs);
+            obj.Ifun = griddedInterpolant({obj.Rs,obj.Zs},obj.Is);
+            
+            % now parse into pore opening outline
+            vn = isnan(obj.Vs);
+            nan0 = find(any(vn,1),1,'first');
+            nan1 = find(any(vn,1),1,'last');
+            nanmid = find(any(vn,2),1,'first');
+            r0 = obj.Rs(find(vn(:,nan0),1,'first'));
+            r1 = obj.Rs(find(vn(:,nan1),1,'first'));
+            rmid = obj.Rs(nanmid);
+            z0 = obj.Zs(nan0);
+            z1 = obj.Zs(nan1);
+            zmid = 0;
+
+            obj.PoreRs = [r0+10, r0, rmid, r1, r1+10];
+            obj.PoreZs = [z0, z0, zmid, z1, z1];
+            
+            % calculate bead top pos
+            obj.Params.zbead = sqrt(obj.Params.rbead^2-r1^2)+z1;
             
             % make big 3d array to hold configurations
             obj.Xs = zeros([obj.Params.samples, obj.Params.N, 3]);
@@ -104,7 +119,6 @@ classdef PoreMC < handle
             obj.U = obj.Utotal(obj.X);
             
             obj.Index = 0;
-            
             
             % stats
             obj.StepsAcc = [0 0 0];
@@ -121,10 +135,18 @@ classdef PoreMC < handle
                 hax = axes();
             end
             
+            % plot two pore halves
             fill(obj.PoreRs,obj.PoreZs,[0.5 0.8 0.2],'Parent',hax);
             hold on
             fill(-obj.PoreRs,obj.PoreZs,[0.5 0.8 0.2],'Parent',hax);
+            % the strand
             plot(hax,obj.X(:,1),obj.X(:,3),'k');
+            % and the bead
+            ths = linspace(0,2*pi,41);
+            plot(obj.Params.rbead*cos(ths), ...
+                obj.Params.rbead*sin(ths) + sqrt(obj.Params.rbead^2 ...
+                - norm(obj.X(1,1:2))) + obj.X(1,3));
+            
             xlim(10*[-1 1]);
             ylim([-10 10]);
             daspect([1 1 1])
@@ -132,9 +154,17 @@ classdef PoreMC < handle
             drawnow
         end
         
+        function rz = getRZ(~,x)
+            rz = [sqrt(sum(x(:,1:2).^2,2)), x(:,3)];
+        end
         
         function u = Utotal(obj,x)
             
+            % first, bead-boundary check
+            if norm(x(1,:)-[0,0,obj.Params.zbead]) > obj.Params.rbead
+                u = 1e100;
+                return
+            end
             % vector of displacements
             dx = diff(x);
             % and their lengths
@@ -146,8 +176,7 @@ classdef PoreMC < handle
             % and bending contribution
             u = u - obj.Params.kbend*sum(sum(ts(1:end-1,:).*ts(2:end,:)));
             % and finally get the work
-            r = sqrt(sum(x(:,1:2).^2,2));
-            uw = sum(obj.Vfun([r,x(:,3)]));
+            uw = sum(obj.Vfun(obj.getRZ(x)));
             % this is in volts
             % now multiply it by effective charge per link
             uw = uw * obj.Params.eperlink;
@@ -170,7 +199,7 @@ classdef PoreMC < handle
             delta = 0.2*sqrt(2/obj.Params.kstretch);
             dscale = [1 1 4];
             % random rotation angle scaling
-            dtheta = 0.1*sqrt(2/obj.Params.kbend);
+            dtheta = 0.05*sqrt(2/obj.Params.kbend);
             % crankshaft angle step size, go all out
             dcrank = 2*pi;
 
@@ -183,50 +212,54 @@ classdef PoreMC < handle
             % pick from various steps
             p = rand();
             if (p < 0.33)
-                % randomly perturb (displace) a handful of beads, just not the first one
+                % randomly perturb (displace) a handful of beads
                 for k=1:5
-                    i = randi(N-1);
-                    xt = Xnew((i+1):end,:);
+                    ii = sort(randi(N,1,2));
+                    xt = Xnew(ii(1):ii(2),:);
                     drand = (rand(1,3)-0.5).*dscale;
                     xt = xt + 2*delta*repmat(drand,[size(xt,1),1]);
-                    Xnew((i+1):end,:) = xt;
+                    Xnew(ii(1):ii(2),:) = xt;
                 end
                 mtype = 1;
             elseif (p < 0.66)
-                % pick random bead to perturb
-                i = randi(N);
-                % make global move
+                % pick random bead to perturb around
+                ii = sort(randi(N,1,2));
+                % get random rotation matrix
                 R = rot_rand(dtheta);
-                % rotate the rest of the chain. doing it this way to make it easier to
-                % keep end fixed
-                xt = Xnew((i+1):end,:);
-                x0 = repmat(Xnew(i,:),[size(xt,1), 1]);
-                Xnew((i+1):end,:) = x0 + (xt-x0)*R;
+                % and choose which direction
+                if rand() < 0.5
+                    % front half of chain
+                    ii(1) = 1;
+                    % subset to be moved
+                    xt = Xnew(ii(1):ii(2),:);
+                    % and stuff
+                    x0 = repmat(Xnew(ii(2),:),[size(xt,1), 1]);
+                else
+                    % back half of chain
+                    ii(2) = size(Xnew,1);
+                    xt = Xnew(ii(1):ii(2),:);
+                    x0 = repmat(Xnew(ii(1),:),[size(xt,1), 1]);
+                end
+                % rotate the rest of the chain
+                Xnew(ii(1):ii(2),:) = x0 + (xt-x0)*R;
                 mtype = 2;
             else
-                % pick two random beads, not the same
-                i = randi(N);
-                j = i;
-                while (i == j)
-                    j = randi(N);
-                end
-                % put them in order
-                if (i>j)
-                    t = i;
-                    i = j;
-                    j = t;
+                % pick random bead to perturb around
+                ii = sort(randi(N,1,2));
+                while diff(ii) < 2
+                    ii = sort(randi(N,1,2));
                 end
                 % get the axis between them
-                axis = Xnew(j,:) - Xnew(i,:);
+                axis = diff(Xnew(ii,:));
                 % and normalize it
-                axis = axis/sqrt(sum(axis.^2));
+                axis = axis/norm(axis);
                 % create random rotation matrix along that axis
                 R = rot_aa(axis,2*(rand()-0.5)*dcrank);
                 % rotate the rest of the chain. doing it this way to make it easier to
                 % keep end fixed
-                xt = Xnew((i+1):j,:);
-                x0 = repmat(Xnew(i,:),[size(xt,1), 1]);
-                Xnew((i+1):j,:) = x0 + (xt-x0)*R;
+                xt = Xnew(ii(1):ii(2),:);
+                x0 = repmat(Xnew(ii(1),:),[size(xt,1), 1]);
+                Xnew(ii(1):ii(2),:) = x0 + (xt-x0)*R;
                 mtype = 3;
             end
 
@@ -266,7 +299,8 @@ classdef PoreMC < handle
             obj.Xs(obj.Index,:,:) = obj.X;
             % weighted avg.
             dinters = exp(-0.5*(obj.X(:,3)/0.3).^2);
-            obj.Blocks(obj.Index) = sum(dinters);
+            %obj.Blocks(obj.Index) = sum(dinters);
+            obj.Blocks(obj.Index) = sum(obj.Ifun(obj.getRZ(obj.X)));
             dinters = dinters / sum(dinters);
             obj.Bases(obj.Index) = sum(dinters.*(1:numel(dinters))');
             %[~,obj.Bases(obj.Index)] = min(abs(obj.X(:,3)));

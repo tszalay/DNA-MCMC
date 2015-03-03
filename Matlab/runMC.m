@@ -1,10 +1,10 @@
 %%
 
 seqs = cell(1,4);
-seqs{1} = [repmat('A',[1 13]), repmat('C',[1 86])];
-seqs{2} = [repmat('A',[1 14]), repmat('C',[1 85])];
-seqs{3} = [repmat('A',[1 15]), repmat('C',[1 84])];
-seqs{4} = [repmat('A',[1 16]), repmat('C',[1 83])];
+seqs{1} = [repmat('A',[1 15]), repmat('C',[1 86])];
+seqs{2} = [repmat('A',[1 16]), repmat('C',[1 85])];
+seqs{3} = [repmat('A',[1 17]), repmat('C',[1 84])];
+seqs{4} = [repmat('A',[1 18]), repmat('C',[1 83])];
 
 pmcs = cell(1,4);
 
