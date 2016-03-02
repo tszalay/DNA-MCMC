@@ -37,13 +37,6 @@ classdef PoreMC < handle
     methods
         function obj = PoreMC(varargin)
             
-            % load precalculated voltages from COMSOL-generated csv
-            % assumes fmt (r,z,V)
-            data = csvread('C:\Users\szalay\Dropbox\research\calculations\comsol\biopore.csv');
-
-            obj.Rs = unique(data(:,1));
-            obj.Zs = unique(data(:,2));
-            
             % now load/validate all of the parameters
             p = inputParser;
             
@@ -59,20 +52,30 @@ classdef PoreMC < handle
             % and these are the DNA parameters
             addParameter(p,'linklength',0.5,@isnumeric);
             addParameter(p,'persistence',1.6,@isnumeric);
-            addParameter(p,'eperbase',0.15,@isnumeric);
+            addParameter(p,'eperbase',0.5,@isnumeric);
             addParameter(p,'V',0.14,@isnumeric);
             % this is in kT/nm^2 or such, from Dessinges et al.
             addParameter(p,'kstretch',120,@isnumeric);
             % DNA-pore interaction energy
-            addParameter(p,'uinter',[1 -1 1 3],@isnumeric);
+            addParameter(p,'uinter',[0 0 0 0],@isnumeric);
             % and interaction distance falloff
             addParameter(p,'dinter',0.2,@isnumeric);
             % also give it a bead radius that the top end is pinned to
             addParameter(p,'rbead',4,@isnumeric);
+            % and let us choose the name if we want
+            addParameter(p,'poretype','biopore',@ischar);
             
             parse(p,varargin{:});
-            
             obj.Params = p.Results;
+            
+            % load precalculated voltages from COMSOL-generated csv
+            % assumes fmt (r,z,V)
+            fn = ['C:\Users\szalay\Dropbox\research\calculations\comsol\' obj.Params.poretype '.csv'];
+            data = csvread(fn);
+
+            obj.Rs = unique(data(:,1));
+            obj.Zs = unique(data(:,2));
+
             obj.Params.sequence = nt2int(obj.Params.sequence);
             obj.Params.N = numel(obj.Params.sequence);
             obj.Params.eperlink = obj.Params.eperbase*2 ...
@@ -300,7 +303,11 @@ classdef PoreMC < handle
             % weighted avg.
             dinters = exp(-0.5*(obj.X(:,3)/0.3).^2);
             %obj.Blocks(obj.Index) = sum(dinters);
-            obj.Blocks(obj.Index) = sum(obj.Ifun(obj.getRZ(obj.X)));
+            %obj.Blocks(obj.Index) = sum(obj.Ifun(obj.getRZ(obj.X)));
+            minind = find(obj.X(:,3)>0,1,'last');
+            dx = diff(obj.X);
+            ts = dx./repmat(sqrt(sum(dx.^2,2)),[1,3]);
+            obj.Blocks(obj.Index) = 1-abs(ts(minind,3)).^2;
             dinters = dinters / sum(dinters);
             obj.Bases(obj.Index) = sum(dinters.*(1:numel(dinters))');
             %[~,obj.Bases(obj.Index)] = min(abs(obj.X(:,3)));
