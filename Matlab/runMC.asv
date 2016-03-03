@@ -1,7 +1,7 @@
 %%
 
-pmc = PoreMC(repmat('A',[1 30]),'samples',1e4,'V',0.04,'persistence',53,...
-    'linklength',25,'poretype','sspore','anchor',500);
+pmc = PoreMC(repmat('A',[1 35]),'samples',1e4,'V',0.14,'persistence',53,...
+    'linklength',20,'poretype','sspore','fi);
 
 for n=1:10000
     pmc.Next();
